@@ -40,6 +40,12 @@ Thumbs.db
 *.env
 config/*.local.*
 
+# API keys in configuration files
+hooks/config/debug.conf
+**/debug.conf
+**/*api*key*
+**/*token*
+
 # Installation artifacts
 *.backup.*
 install.log

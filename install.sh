@@ -93,6 +93,14 @@ check_requirements() {
 configure_api_provider() {
     log "info" "Configuring API provider..."
     
+    # Create config file from template if it doesn't exist
+    if [ ! -f "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE.template" ]; then
+        log "info" "Creating config file from template..."
+        cp "$CONFIG_FILE.template" "$CONFIG_FILE"
+    elif [ ! -f "$CONFIG_FILE" ]; then
+        error_exit "Config file not found: $CONFIG_FILE and no template available"
+    fi
+    
     # Check if config already exists and has a provider set
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"

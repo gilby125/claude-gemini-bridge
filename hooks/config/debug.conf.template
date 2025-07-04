@@ -13,10 +13,10 @@ MEASURE_PERFORMANCE=true
 DRY_RUN=false
 
 # API Provider Configuration
-API_PROVIDER="openrouter"  # Options: gemini, openrouter
+API_PROVIDER="gemini"  # Options: gemini, openrouter
 
 # OpenRouter Configuration
-OPENROUTER_API_KEY="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"
+OPENROUTER_API_KEY=""  # Add your OpenRouter API key here
 OPENROUTER_MODEL="openrouter/cypher-alpha:free"  # Default model (free tier)
 OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
 OPENROUTER_TIMEOUT=30            # 30 seconds timeout

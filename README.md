@@ -321,6 +321,9 @@ To switch providers, edit `hooks/config/debug.conf`:
 API_PROVIDER="openrouter"  # or "gemini"
 ```
 
+### 🔒 Security Note
+**Never commit API keys to git!** The `debug.conf` file is git-ignored for security. See [SECURITY.md](SECURITY.md) for details.
+
 ### Advanced Configuration
 
 **Current Implementation:**
