@@ -9,14 +9,14 @@ init_api_wrapper() {
     
     case "$api_provider" in
         "gemini")
-            source "$(dirname "$0")/lib/gemini-wrapper.sh"
+            source "$(dirname "$0")/gemini-wrapper.sh"
             if ! init_gemini_wrapper; then
                 error_log "Failed to initialize Gemini wrapper"
                 return 1
             fi
             ;;
         "openrouter")
-            source "$(dirname "$0")/lib/openrouter-wrapper.sh"
+            source "$(dirname "$0")/openrouter-wrapper.sh"
             if ! init_openrouter_wrapper; then
                 error_log "Failed to initialize OpenRouter wrapper"
                 return 1
