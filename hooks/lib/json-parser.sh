@@ -104,19 +104,22 @@ create_hook_response() {
 }
 
 # Creates structured Gemini response
-create_gemini_response() {
+create_api_response() {
     local content="$1"
     local original_tool="$2"
     local file_count="$3"
     local processing_time="$4"
+    local provider_name="${5:-$(get_api_provider_name)}"
     
     jq -n \
         --arg content "$content" \
         --arg original_tool "$original_tool" \
         --arg file_count "$file_count" \
         --arg processing_time "$processing_time" \
+        --arg provider_name "$provider_name" \
         '{
-            type: "gemini_analysis",
+            type: "api_analysis",
+            provider: $provider_name,
             content: $content,
             metadata: {
                 original_tool: $original_tool,

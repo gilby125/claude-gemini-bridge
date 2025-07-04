@@ -14,10 +14,13 @@ fi
 source "$SCRIPT_DIR/lib/debug-helpers.sh"
 source "$SCRIPT_DIR/lib/path-converter.sh"
 source "$SCRIPT_DIR/lib/json-parser.sh"
-source "$SCRIPT_DIR/lib/gemini-wrapper.sh"
+source "$SCRIPT_DIR/lib/api-wrapper.sh"
 
 # Initialize debug system
 init_debug "gemini-bridge" "$SCRIPT_DIR/../logs/debug"
+
+# Initialize API wrapper early for configuration access
+init_api_wrapper >/dev/null 2>&1 || true
 
 # Start performance measurement
 start_timer "hook_execution"
@@ -89,13 +92,13 @@ case "$TOOL_NAME" in
             # Handle recursive patterns
             EXTENSION=$(echo "$PATTERN_RAW" | sed 's/.*\*\*\/\*\.\([^*]*\)$/\1/')
             if [ "$EXTENSION" != "$PATTERN_RAW" ]; then
-                FILES=$(find . -name "*.${EXTENSION}" -type f 2>/dev/null | sed 's|^\./||' | head -$GEMINI_MAX_FILES)
+                FILES=$(find . -name "*.${EXTENSION}" -type f 2>/dev/null | sed 's|^\./||' | head -$(get_api_limits "max_files"))
             else
-                FILES=$(find . -type f 2>/dev/null | sed 's|^\./||' | head -$GEMINI_MAX_FILES)
+                FILES=$(find . -type f 2>/dev/null | sed 's|^\./||' | head -$(get_api_limits "max_files"))
             fi
         else
             # Simple glob patterns
-            FILES=$(ls $PATTERN_RAW 2>/dev/null | head -$GEMINI_MAX_FILES)
+            FILES=$(ls $PATTERN_RAW 2>/dev/null | head -$(get_api_limits "max_files"))
         fi
         # Convert to absolute paths
         ABSOLUTE_FILES=""
@@ -129,15 +132,15 @@ esac
 
 debug_vars "extracted" TOOL_NAME FILES WORKING_DIR ORIGINAL_PROMPT
 
-# Decision: Should Gemini be used? Based on Claude's 200k vs Gemini's 1M token limit
-should_delegate_to_gemini() {
+# Decision: Should delegate to external API? Based on Claude's 200k vs API's token limit
+should_delegate_to_api() {
     local tool="$1"
     local files="$2"
     local prompt="$3"
     
     # Dry-run mode - always delegate for tests
     if [ "$DRY_RUN" = "true" ]; then
-        debug_log 1 "DRY_RUN mode: would delegate to Gemini"
+        debug_log 1 "DRY_RUN mode: would delegate to $(get_api_provider_name)"
         return 0
     fi
     
@@ -162,9 +165,9 @@ should_delegate_to_gemini() {
     
     # Use configurable token limits
     local claude_token_limit=${CLAUDE_TOKEN_LIMIT:-50000}
-    local gemini_token_limit=${GEMINI_TOKEN_LIMIT:-800000}
+    local api_token_limit=$(get_api_limits "token_limit")
     local min_files_threshold=${MIN_FILES_FOR_GEMINI:-3}
-    local max_total_size=${MAX_TOTAL_SIZE_FOR_GEMINI:-10485760}
+    local max_total_size=$(get_api_limits "max_size")
     
     # Check if total size exceeds maximum limit
     if [ "$total_size" -gt "$max_total_size" ]; then
@@ -172,20 +175,20 @@ should_delegate_to_gemini() {
         return 1
     fi
     
-    # If estimated tokens exceed Claude's comfortable limit, use Gemini
+    # If estimated tokens exceed Claude's comfortable limit, use external API
     if [ "$estimated_tokens" -gt "$claude_token_limit" ]; then
-        if [ "$estimated_tokens" -le "$gemini_token_limit" ]; then
-            debug_log 1 "Large content ($estimated_tokens tokens > $claude_token_limit) - delegating to Gemini"
+        if [ "$estimated_tokens" -le "$api_token_limit" ]; then
+            debug_log 1 "Large content ($estimated_tokens tokens > $claude_token_limit) - delegating to $(get_api_provider_name)"
             return 0
         else
-            debug_log 1 "Content too large even for Gemini ($estimated_tokens tokens > $gemini_token_limit) - splitting needed"
+            debug_log 1 "Content too large even for $(get_api_provider_name) ($estimated_tokens tokens > $api_token_limit) - splitting needed"
             return 1
         fi
     fi
     
-    # For smaller content, check if it's a multi-file analysis task that benefits from Gemini
+    # For smaller content, check if it's a multi-file analysis task that benefits from external API
     if [ "$file_count" -ge "$min_files_threshold" ] && [[ "$tool" == "Task" ]]; then
-        debug_log 1 "Multi-file Task ($file_count files >= $min_files_threshold) - delegating to Gemini for better analysis"
+        debug_log 1 "Multi-file Task ($file_count files >= $min_files_threshold) - delegating to $(get_api_provider_name) for better analysis"
         return 0
     fi
     
@@ -203,36 +206,36 @@ should_delegate_to_gemini() {
 }
 
 # Main decision
-if should_delegate_to_gemini "$TOOL_NAME" "$FILES" "$ORIGINAL_PROMPT"; then
-    debug_log 1 "Delegating to Gemini for tool: $TOOL_NAME"
+if should_delegate_to_api "$TOOL_NAME" "$FILES" "$ORIGINAL_PROMPT"; then
+    debug_log 1 "Delegating to $(get_api_provider_name) for tool: $TOOL_NAME"
     
-    # Initialize Gemini wrapper
-    if ! init_gemini_wrapper; then
-        error_log "Failed to initialize Gemini wrapper"
-        create_hook_response "continue" "" "Gemini initialization failed"
+    # Initialize API wrapper
+    if ! init_api_wrapper; then
+        error_log "Failed to initialize API wrapper"
+        create_hook_response "continue" "" "API initialization failed"
         exit 1
     fi
     
-    # Call Gemini
-    start_timer "gemini_processing"
-    GEMINI_RESULT=$(call_gemini "$TOOL_NAME" "$FILES" "$WORKING_DIR" "$ORIGINAL_PROMPT")
-    GEMINI_EXIT_CODE=$?
-    GEMINI_DURATION=$(end_timer "gemini_processing")
+    # Call API
+    start_timer "api_processing"
+    API_RESULT=$(call_api "$TOOL_NAME" "$FILES" "$WORKING_DIR" "$ORIGINAL_PROMPT")
+    API_EXIT_CODE=$?
+    API_DURATION=$(end_timer "api_processing")
     
-    if [ "$GEMINI_EXIT_CODE" -eq 0 ] && [ -n "$GEMINI_RESULT" ]; then
-        # Successful Gemini response
-        debug_log 1 "Gemini processing successful (${GEMINI_DURATION}s)"
+    if [ "$API_EXIT_CODE" -eq 0 ] && [ -n "$API_RESULT" ]; then
+        # Successful API response
+        debug_log 1 "$(get_api_provider_name) processing successful (${API_DURATION}s)"
         
         # Create structured response
         FILE_COUNT=$(count_files "$FILES")
-        STRUCTURED_RESPONSE=$(create_gemini_response "$GEMINI_RESULT" "$TOOL_NAME" "$FILE_COUNT" "$GEMINI_DURATION")
+        STRUCTURED_RESPONSE=$(create_api_response "$API_RESULT" "$TOOL_NAME" "$FILE_COUNT" "$API_DURATION")
         
         # Hook response with Gemini result
         create_hook_response "replace" "$STRUCTURED_RESPONSE"
     else
         # Gemini error - continue normally
-        error_log "Gemini processing failed, continuing with normal tool execution"
-        create_hook_response "continue" "" "Gemini processing failed"
+        error_log "$(get_api_provider_name) processing failed, continuing with normal tool execution"
+        create_hook_response "continue" "" "$(get_api_provider_name) processing failed"
     fi
 else
     # Continue normally without Gemini

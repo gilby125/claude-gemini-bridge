@@ -1,8 +1,8 @@
 # Claude-Gemini Bridge
 
-🤖 **Intelligent integration between Claude Code and Google Gemini for large-scale code analysis**
+🤖 **Intelligent integration between Claude Code and external AI APIs (Gemini & OpenRouter) for large-scale code analysis**
 
-The Claude-Gemini Bridge automatically delegates complex code analysis tasks from Claude Code to Google Gemini, combining Claude's reasoning capabilities with Gemini's large context processing power.
+The Claude-Gemini Bridge automatically delegates complex code analysis tasks from Claude Code to Google Gemini or OpenRouter, combining Claude's reasoning capabilities with external models' large context processing power.
 
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
@@ -136,9 +136,10 @@ The bridge delegates to Gemini when:
 ### Prerequisites
 
 - [Claude Code CLI](https://claude.ai/code) installed and configured
-- [Google Gemini CLI](https://github.com/google/generative-ai-cli) installed
 - `jq` for JSON processing
 - `bash` 4.0+
+- **For Gemini:** [Google Gemini CLI](https://github.com/google/generative-ai-cli) installed
+- **For OpenRouter:** `curl` (usually pre-installed) and an [OpenRouter API key](https://openrouter.ai/)
 
 ### Installation Options
 
@@ -261,13 +262,25 @@ The installer automatically:
 DEBUG_LEVEL=2                    # 0=off, 1=basic, 2=verbose, 3=trace
 CAPTURE_INPUTS=true              # Save hook inputs for analysis
 MEASURE_PERFORMANCE=true         # Enable timing measurements
-DRY_RUN=false                   # Test mode without Gemini calls
+DRY_RUN=false                   # Test mode without API calls
+
+# API Provider Selection (NEW!)
+API_PROVIDER="gemini"           # Options: gemini, openrouter
 
 # Gemini API settings (WORKING)
 GEMINI_CACHE_TTL=3600           # Cache responses for 1 hour
 GEMINI_RATE_LIMIT=1             # 1 second between API calls
 GEMINI_TIMEOUT=30               # 30 second API timeout
 GEMINI_MAX_FILES=20             # Maximum files per Gemini call
+
+# OpenRouter API settings (NEW!)
+OPENROUTER_API_KEY=""           # Your OpenRouter API key
+OPENROUTER_MODEL="openrouter/cypher-alpha:free"  # Model to use
+OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
+OPENROUTER_TIMEOUT=30           # 30 second API timeout
+OPENROUTER_MAX_TOKENS=100000    # Max tokens for OpenRouter
+OPENROUTER_RATE_LIMIT=1         # 1 second between API calls
+OPENROUTER_CACHE_TTL=3600       # Cache responses for 1 hour
 
 # File security (WORKING)
 GEMINI_EXCLUDE_PATTERNS="*.secret|*.key|*.env|*.password|*.token|*.pem|*.p12"
@@ -287,6 +300,25 @@ MIN_FILES_FOR_GEMINI=3          # At least 3 files for Task operations
 CLAUDE_TOKEN_LIMIT=50000        # Token limit for Claude delegation (~200KB)  
 GEMINI_TOKEN_LIMIT=800000       # Max tokens Gemini can handle
 MAX_TOTAL_SIZE_FOR_GEMINI=10485760  # Max 10MB total size
+```
+
+### Choosing Between Gemini and OpenRouter
+
+**Google Gemini:**
+- ✅ Free CLI tool with generous usage limits
+- ✅ 1M token context window
+- ✅ Fast response times
+- ❌ Requires Gemini CLI installation
+
+**OpenRouter:**
+- ✅ Multiple model options (including free models)
+- ✅ No CLI installation required (uses curl)
+- ✅ Easy API key setup
+- ❌ May have usage costs depending on model choice
+
+To switch providers, edit `hooks/config/debug.conf`:
+```bash
+API_PROVIDER="openrouter"  # or "gemini"
 ```
 
 ### Advanced Configuration

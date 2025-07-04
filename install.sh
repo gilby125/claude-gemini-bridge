@@ -16,6 +16,7 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_SETTINGS_FILE="$HOME/.claude/settings.json"
 BACKUP_SUFFIX=$(date +%Y%m%d_%H%M%S)
+CONFIG_FILE="$SCRIPT_DIR/hooks/config/debug.conf"
 
 # Log function
 log() {
@@ -49,11 +50,32 @@ check_requirements() {
     fi
     log "debug" "Claude CLI found: $(which claude)"
     
-    # Gemini CLI
-    if ! command -v gemini &> /dev/null; then
-        error_exit "Gemini CLI not found. Visit: https://github.com/google/generative-ai-cli"
+    # Check for API provider choice
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
     fi
-    log "debug" "Gemini CLI found: $(which gemini)"
+    
+    local api_provider="${API_PROVIDER:-gemini}"
+    
+    case "$api_provider" in
+        "gemini")
+            # Gemini CLI
+            if ! command -v gemini &> /dev/null; then
+                error_exit "Gemini CLI not found. Visit: https://github.com/google/generative-ai-cli"
+            fi
+            log "debug" "Gemini CLI found: $(which gemini)"
+            ;;
+        "openrouter")
+            # OpenRouter uses curl, which should be available
+            if ! command -v curl &> /dev/null; then
+                error_exit "curl not found. OpenRouter requires curl for API calls."
+            fi
+            log "debug" "OpenRouter API selected, curl found: $(which curl)"
+            ;;
+        *)
+            error_exit "Unknown API provider: $api_provider"
+            ;;
+    esac
     
     # jq for JSON processing
     if ! command -v jq &> /dev/null; then
@@ -67,11 +89,79 @@ check_requirements() {
     log "info" "All prerequisites met"
 }
 
+# Configure API provider
+configure_api_provider() {
+    log "info" "Configuring API provider..."
+    
+    # Check if config already exists and has a provider set
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+        if [ -n "$API_PROVIDER" ]; then
+            log "info" "Current API provider: $API_PROVIDER"
+            echo ""
+            read -p "Keep current provider? (Y/n): " keep_provider
+            if [[ "$keep_provider" =~ ^[Nn]$ ]]; then
+                API_PROVIDER=""
+            else
+                return 0
+            fi
+        fi
+    fi
+    
+    # Ask user to choose provider
+    echo ""
+    echo "Choose API provider:"
+    echo "1) Gemini (Google's Gemini CLI)"
+    echo "2) OpenRouter (Multiple models via API)"
+    echo ""
+    read -p "Select provider (1-2) [1]: " provider_choice
+    
+    case "${provider_choice:-1}" in
+        1)
+            API_PROVIDER="gemini"
+            log "info" "Selected: Gemini"
+            ;;
+        2)
+            API_PROVIDER="openrouter"
+            log "info" "Selected: OpenRouter"
+            
+            # Ask for API key if not set
+            if [ -z "$OPENROUTER_API_KEY" ]; then
+                echo ""
+                echo "OpenRouter requires an API key."
+                echo "Get one at: https://openrouter.ai/"
+                echo ""
+                read -p "Enter your OpenRouter API key (or press Enter to skip): " api_key
+                if [ -n "$api_key" ]; then
+                    OPENROUTER_API_KEY="$api_key"
+                fi
+            fi
+            ;;
+        *)
+            API_PROVIDER="gemini"
+            log "info" "Defaulting to: Gemini"
+            ;;
+    esac
+    
+    # Update config file
+    if [ -f "$CONFIG_FILE" ]; then
+        # Update existing config
+        sed -i.bak "s/^API_PROVIDER=.*/API_PROVIDER=\"$API_PROVIDER\"/" "$CONFIG_FILE"
+        if [ -n "$OPENROUTER_API_KEY" ]; then
+            sed -i.bak "s/^OPENROUTER_API_KEY=.*/OPENROUTER_API_KEY=\"$OPENROUTER_API_KEY\"/" "$CONFIG_FILE"
+        fi
+    else
+        log "warn" "Config file not found at $CONFIG_FILE"
+    fi
+    
+    log "info" "API provider configured: $API_PROVIDER"
+}
+
 # Create directory structure if needed
 create_directories() {
     log "info" "Creating directory structure..."
     
-    mkdir -p "$SCRIPT_DIR"/{cache/gemini,logs/debug,debug/captured}
+    mkdir -p "$SCRIPT_DIR"/{cache/gemini,cache/openrouter,logs/debug,debug/captured}
     
     if [ $? -eq 0 ]; then
         log "info" "Directory structure ready"
@@ -81,6 +171,26 @@ create_directories() {
 }
 
 # Test Gemini connection
+test_api_connection() {
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+    fi
+    
+    local api_provider="${API_PROVIDER:-gemini}"
+    
+    case "$api_provider" in
+        "gemini")
+            test_gemini_connection
+            ;;
+        "openrouter")
+            test_openrouter_connection
+            ;;
+        *)
+            log "warn" "Unknown API provider: $api_provider"
+            ;;
+    esac
+}
+
 test_gemini_connection() {
     log "info" "Testing Gemini connection..."
     
@@ -106,6 +216,44 @@ test_gemini_connection() {
         if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
             error_exit "Gemini configuration required. See Gemini CLI documentation."
         fi
+    fi
+}
+
+test_openrouter_connection() {
+    log "info" "Testing OpenRouter connection..."
+    
+    if [ -z "$OPENROUTER_API_KEY" ]; then
+        log "warn" "OpenRouter API key not set"
+        echo ""
+        echo "To use OpenRouter:"
+        echo "1. Get an API key from https://openrouter.ai/"
+        echo "2. Edit $CONFIG_FILE"
+        echo "3. Set OPENROUTER_API_KEY=\"your-key-here\""
+        return 1
+    fi
+    
+    # Test OpenRouter API
+    local test_result=$(curl -s -S -X POST "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}/chat/completions" \
+        -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "model": "'${OPENROUTER_MODEL:-openrouter/cypher-alpha:free}'",
+            "messages": [{"role": "user", "content": "What is 1+1?"}],
+            "max_tokens": 10
+        }' 2>&1)
+    
+    if echo "$test_result" | jq -e '.choices[0].message.content' > /dev/null 2>&1; then
+        log "info" "OpenRouter connection tested successfully"
+        log "debug" "OpenRouter API is working and responding"
+    else
+        log "warn" "OpenRouter test failed"
+        log "debug" "OpenRouter response: $test_result"
+        echo ""
+        echo "Common issues:"
+        echo "- Invalid API key"
+        echo "- API quota exceeded"
+        echo "- Network connectivity issues"
+        return 1
     fi
 }
 
@@ -370,8 +518,9 @@ main() {
     
     # Installation steps
     check_requirements
+    configure_api_provider
     create_directories
-    test_gemini_connection
+    test_api_connection
     configure_claude_hooks
     set_permissions
     run_basic_tests

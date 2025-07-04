@@ -188,6 +188,70 @@ else
 fi
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
+# OpenRouter Wrapper Test
+echo "🧪 Testing openrouter-wrapper.sh..."
+if "$BRIDGE_DIR/hooks/lib/openrouter-wrapper.sh" >/dev/null 2>&1; then
+    echo "✅ PASSED: OpenRouter wrapper"
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+else
+    echo "❌ FAILED: OpenRouter wrapper"
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+# API Wrapper Test
+echo "🧪 Testing api-wrapper.sh..."
+if "$BRIDGE_DIR/hooks/lib/api-wrapper.sh" >/dev/null 2>&1; then
+    echo "✅ PASSED: API wrapper"
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+else
+    echo "❌ FAILED: API wrapper"
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+# Test API Provider Switching
+echo ""
+echo "🧪 Testing API provider switching..."
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+# Save current provider
+OLD_API_PROVIDER="${API_PROVIDER:-}"
+
+# Test with Gemini
+export API_PROVIDER="gemini"
+GEMINI_TEST=$(echo '{"tool": "Read", "parameters": {"file_path": "/tmp/test.txt"}}' | "$BRIDGE_SCRIPT" 2>/dev/null | jq -r '.decision // empty')
+if [ "$GEMINI_TEST" = "approve" ]; then
+    echo "✅ Gemini provider test passed"
+    GEMINI_OK=1
+else
+    echo "⚠️  Gemini provider test failed (might be normal if Gemini not configured)"
+    GEMINI_OK=0
+fi
+
+# Test with OpenRouter
+export API_PROVIDER="openrouter"
+OPENROUTER_TEST=$(echo '{"tool": "Read", "parameters": {"file_path": "/tmp/test.txt"}}' | "$BRIDGE_SCRIPT" 2>/dev/null | jq -r '.decision // empty')
+if [ "$OPENROUTER_TEST" = "approve" ]; then
+    echo "✅ OpenRouter provider test passed"
+    OPENROUTER_OK=1
+else
+    echo "⚠️  OpenRouter provider test failed (might be normal if OpenRouter not configured)"
+    OPENROUTER_OK=0
+fi
+
+# At least one should work
+if [ "$GEMINI_OK" -eq 1 ] || [ "$OPENROUTER_OK" -eq 1 ]; then
+    echo "✅ PASSED: API provider switching works"
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+else
+    echo "❌ FAILED: No API provider working"
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# Restore original provider
+export API_PROVIDER="$OLD_API_PROVIDER"
+
 # Test summary
 echo ""
 echo "📊 Test Summary"
