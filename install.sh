@@ -133,8 +133,8 @@ configure_api_provider() {
             API_PROVIDER="openrouter"
             log "info" "Selected: OpenRouter"
             
-            # Ask for API key if not set
-            if [ -z "$OPENROUTER_API_KEY" ]; then
+            # Ask for API key if not set or is placeholder
+            if [ -z "$OPENROUTER_API_KEY" ] || [[ "$OPENROUTER_API_KEY" == *"YOUR_NEW_"* ]] || [[ "$OPENROUTER_API_KEY" == *"PLACEHOLDER"* ]] || [ ${#OPENROUTER_API_KEY} -lt 10 ]; then
                 echo ""
                 echo "OpenRouter requires an API key."
                 echo "Get one at: https://openrouter.ai/"
@@ -230,14 +230,24 @@ test_gemini_connection() {
 test_openrouter_connection() {
     log "info" "Testing OpenRouter connection..."
     
-    if [ -z "$OPENROUTER_API_KEY" ]; then
-        log "warn" "OpenRouter API key not set"
+    # Check if API key is missing or placeholder
+    if [ -z "$OPENROUTER_API_KEY" ] || [[ "$OPENROUTER_API_KEY" == *"YOUR_NEW_"* ]] || [[ "$OPENROUTER_API_KEY" == *"PLACEHOLDER"* ]] || [ ${#OPENROUTER_API_KEY} -lt 10 ]; then
+        log "warn" "OpenRouter API key not set or invalid"
         echo ""
-        echo "To use OpenRouter:"
-        echo "1. Get an API key from https://openrouter.ai/"
-        echo "2. Edit $CONFIG_FILE"
-        echo "3. Set OPENROUTER_API_KEY=\"your-key-here\""
-        return 1
+        echo "To use OpenRouter, you need a valid API key."
+        echo "Get one at: https://openrouter.ai/"
+        echo ""
+        read -p "Enter your OpenRouter API key now (or press Enter to skip): " new_api_key
+        if [ -n "$new_api_key" ]; then
+            OPENROUTER_API_KEY="$new_api_key"
+            # Update config file
+            if [ -f "$CONFIG_FILE" ]; then
+                sed -i.bak "s/OPENROUTER_API_KEY=.*/OPENROUTER_API_KEY=\"$OPENROUTER_API_KEY\"/" "$CONFIG_FILE"
+            fi
+        else
+            echo "Skipping OpenRouter test - no API key provided"
+            return 1
+        fi
     fi
     
     # Test OpenRouter API
